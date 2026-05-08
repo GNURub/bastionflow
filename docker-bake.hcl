@@ -3,7 +3,7 @@ variable "REGISTRY" {
 }
 
 variable "IMAGE_NAME" {
-  default = "your-org/bastionflow"
+  default = "gnurub/bastionflow"
 }
 
 variable "VERSION" {
@@ -15,7 +15,7 @@ variable "REVISION" {
 }
 
 variable "SOURCE" {
-  default = "https://github.com/your-org/bastionflow"
+  default = "https://github.com/GNURub/bastionflow"
 }
 
 variable "CREATED" {

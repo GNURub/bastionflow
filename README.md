@@ -52,7 +52,7 @@ Once you publish the image, users do **not** need to build the dashboard from so
 Set the image name in `.env` or in your shell:
 
 ```env
-CROWDSEC_PANEL_IMAGE=ghcr.io/your-org/bastionflow:latest
+CROWDSEC_PANEL_IMAGE=ghcr.io/gnurub/bastionflow:latest
 ```
 
 Then run the production compose file:
@@ -78,7 +78,7 @@ The same image is used for both roles:
 | `bastionflow` | default Next.js server, `node server.js` |
 | `bastionflow-notification-worker` | `node scripts/notification-worker.mjs` |
 
-> Replace `ghcr.io/your-org/bastionflow` with your real GHCR image path after publishing.
+> Official image path: `ghcr.io/gnurub/bastionflow`. Forks can override `CROWDSEC_PANEL_IMAGE` with their own image.
 
 
 ---
@@ -131,7 +131,7 @@ Create `.env` next to your compose file:
 
 ```env
 # Published image
-CROWDSEC_PANEL_IMAGE=ghcr.io/your-org/bastionflow:latest
+CROWDSEC_PANEL_IMAGE=ghcr.io/gnurub/bastionflow:latest
 
 # CrowdSec LAPI reachable from the panel container
 CROWDSEC_LAPI_URL=http://crowdsec:8080
@@ -178,7 +178,7 @@ Add this service to your existing `docker-compose.yml`:
 ```yaml
 services:
   bastionflow:
-    image: ${CROWDSEC_PANEL_IMAGE:-ghcr.io/your-org/bastionflow:latest}
+    image: ${CROWDSEC_PANEL_IMAGE:-ghcr.io/gnurub/bastionflow:latest}
     container_name: bastionflow
     env_file:
       - .env
@@ -250,7 +250,7 @@ Replace:
 | --- | --- |
 | `traefik_proxy` | Your real Traefik Docker network |
 | `bastionflow.example.com` | Your real dashboard hostname |
-| `ghcr.io/your-org/bastionflow:latest` | Your published image |
+| `ghcr.io/gnurub/bastionflow:latest` | Official published image. Pin a version tag for production if preferred. |
 | `crowdsec-bouncer@file` | Your real CrowdSec bouncer middleware name/provider |
 
 ### 4. If your bouncer middleware is not called `crowdsec-bouncer@file`
@@ -297,7 +297,7 @@ Add this service if you want Slack/Discord/webhook notifications while the dashb
 ```yaml
 services:
   bastionflow-notification-worker:
-    image: ${CROWDSEC_PANEL_IMAGE:-ghcr.io/your-org/bastionflow:latest}
+    image: ${CROWDSEC_PANEL_IMAGE:-ghcr.io/gnurub/bastionflow:latest}
     container_name: bastionflow-notification-worker
     command: ["node", "scripts/notification-worker.mjs"]
     env_file:
@@ -709,7 +709,7 @@ pnpm run image:metadata
 Build a local AMD64 image and load it into your Docker daemon:
 
 ```bash
-REGISTRY=ghcr.io IMAGE_NAME=your-org/bastionflow VERSION=0.1.0 pnpm run image:build
+REGISTRY=ghcr.io IMAGE_NAME=gnurub/bastionflow VERSION=0.1.0 pnpm run image:build
 ```
 
 ### Push multi-arch image manually
@@ -718,10 +718,10 @@ Push `linux/amd64` and `linux/arm64` images:
 
 ```bash
 REGISTRY=ghcr.io \
-IMAGE_NAME=your-org/bastionflow \
+IMAGE_NAME=gnurub/bastionflow \
 VERSION=0.1.0 \
 REVISION=$(git rev-parse HEAD) \
-SOURCE=https://github.com/your-org/bastionflow \
+SOURCE=https://github.com/GNURub/bastionflow \
 CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
 pnpm run image:push
 ```
