@@ -1,0 +1,44 @@
+name: bastionflow
+
+services:
+  bastionflow:
+    image: ${CROWDSEC_PANEL_IMAGE:-ghcr.io/your-org/bastionflow:latest}
+    container_name: bastionflow
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      CROWDSEC_PANEL_DB_PATH: ${CROWDSEC_PANEL_DB_PATH:-/data/bastionflow.sqlite}
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      - bastionflow-data:/data
+    networks:
+      - crowdsec-internal
+    restart: unless-stopped
+
+  notification-worker:
+    profiles: ["notifications"]
+    image: ${CROWDSEC_PANEL_IMAGE:-ghcr.io/your-org/bastionflow:latest}
+    container_name: bastionflow-notification-worker
+    command: ["node", "scripts/notification-worker.mjs"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      CROWDSEC_PANEL_INTERNAL_URL: http://bastionflow:3000
+      CROWDSEC_PANEL_DB_PATH: ${CROWDSEC_PANEL_DB_PATH:-/data/bastionflow.sqlite}
+    volumes:
+      - bastionflow-data:/data
+    networks:
+      - crowdsec-internal
+    depends_on:
+      - bastionflow
+    restart: unless-stopped
+
+networks:
+  crowdsec-internal:
+    external: true
+
+volumes:
+  bastionflow-data:

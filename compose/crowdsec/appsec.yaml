@@ -1,0 +1,8 @@
+# CrowdSec AppSec acquisition for the Traefik bouncer plugin.
+# Must listen on 0.0.0.0 inside Docker so Traefik can reach it over the Compose network.
+appsec_configs:
+  - crowdsecurity/appsec-default
+labels:
+  type: appsec
+listen_addr: 0.0.0.0:7422
+source: appsec

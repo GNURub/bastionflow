@@ -1,0 +1,243 @@
+name: bastionflow-test
+
+services:
+  traefik-config:
+    image: alpine:3.20
+    container_name: bastionflow-traefik-config
+    environment:
+      CROWDSEC_BOUNCER_API_KEY: ${CROWDSEC_BOUNCER_API_KEY:-local-traefik-bouncer-key-change-me}
+    volumes:
+      - ./compose/traefik/dynamic.yml.tpl:/template/dynamic.yml.tpl:ro
+      - traefik-dynamic:/dynamic
+    entrypoint: ["/bin/sh"]
+    command:
+      - -ec
+      - |
+        if [ -z "$${CROWDSEC_BOUNCER_API_KEY}" ]; then
+          echo "CROWDSEC_BOUNCER_API_KEY is required" >&2
+          exit 1
+        fi
+        escaped=$$(printf '%s' "$${CROWDSEC_BOUNCER_API_KEY}" | sed 's/[&|\\]/\\&/g')
+        sed "s|__CROWDSEC_BOUNCER_API_KEY__|$${escaped}|g" /template/dynamic.yml.tpl > /dynamic/dynamic.yml
+        chmod 0444 /dynamic/dynamic.yml
+    networks:
+      - edge
+    restart: "no"
+
+  traefik:
+    image: traefik:v3.6.16
+    container_name: bastionflow-traefik
+    command:
+      - --api.dashboard=true
+      - --api.insecure=${TRAEFIK_API_INSECURE:-false}
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.forwardedHeaders.insecure=false
+      - --entrypoints.web.forwardedHeaders.trustedIPs=127.0.0.1/32,172.16.0.0/12,192.168.0.0/16,10.0.0.0/8
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
+      - --accesslog=true
+      - --accesslog.filepath=/var/log/traefik/access.log
+      - --accesslog.format=json
+      - --accesslog.bufferingsize=1
+      - --accesslog.fields.defaultmode=keep
+      - --accesslog.fields.headers.defaultmode=drop
+      - --accesslog.fields.headers.names.User-Agent=keep
+      - --accesslog.fields.headers.names.X-Forwarded-For=keep
+      - --accesslog.fields.headers.names.X-Real-IP=keep
+      - --log.level=INFO
+      - --experimental.plugins.bouncer.modulename=github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin
+      - --experimental.plugins.bouncer.version=v1.6.0
+    ports:
+      - "${PORT:-8080}:80"
+      - "8081:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-dynamic:/etc/traefik/dynamic:ro
+      - traefik-logs:/var/log/traefik
+    depends_on:
+      traefik-config:
+        condition: service_completed_successfully
+      crowdsec:
+        condition: service_started
+    networks:
+      - edge
+    restart: unless-stopped
+
+  crowdsec:
+    image: crowdsecurity/crowdsec:v1.7.7
+    container_name: bastionflow-crowdsec
+    environment:
+      COLLECTIONS: crowdsecurity/traefik crowdsecurity/http-cve crowdsecurity/appsec-virtual-patching crowdsecurity/appsec-generic-rules
+      BOUNCER_KEY_TRAEFIK: ${CROWDSEC_BOUNCER_API_KEY:-local-traefik-bouncer-key-change-me}
+      GID: "1000"
+    expose:
+      - "8080"
+      - "6060"
+      - "7422"
+    volumes:
+      - crowdsec-config:/etc/crowdsec
+      - crowdsec-data:/var/lib/crowdsec/data
+      - ./compose/crowdsec/acquis.yaml:/etc/crowdsec/acquis.yaml:ro
+      - ./compose/crowdsec/appsec.yaml:/etc/crowdsec/acquis.d/appsec.yaml:ro
+      - traefik-logs:/var/log/traefik:ro
+    networks:
+      - edge
+    restart: unless-stopped
+
+  crowdsec-init:
+    image: crowdsecurity/crowdsec:v1.7.7
+    container_name: bastionflow-init
+    depends_on:
+      crowdsec:
+        condition: service_started
+    environment:
+      CROWDSEC_BOUNCER_API_KEY: ${CROWDSEC_BOUNCER_API_KEY:-local-traefik-bouncer-key-change-me}
+      CROWDSEC_DASHBOARD_MACHINE_PASSWORD: ${CROWDSEC_DASHBOARD_MACHINE_PASSWORD:-local-dashboard-machine-password-change-me}
+    volumes:
+      - crowdsec-config:/etc/crowdsec
+      - crowdsec-data:/var/lib/crowdsec/data
+    entrypoint: ["/bin/sh"]
+    command:
+      - -ec
+      - |
+        echo "Waiting for CrowdSec LAPI socket..."
+        for i in $$(seq 1 60); do
+          if nc -z crowdsec 8080; then
+            break
+          fi
+          sleep 2
+        done
+
+        echo "Ensuring dashboard machine credentials exist..."
+        cscli machines add dashboard --password "$${CROWDSEC_DASHBOARD_MACHINE_PASSWORD}" --force || true
+        cscli machines validate dashboard || true
+
+        echo "Ensuring Traefik bouncer key exists..."
+        cscli bouncers add traefik --key "$${CROWDSEC_BOUNCER_API_KEY}" || true
+
+        echo "Installing/updating useful test collections..."
+        cscli hub update || true
+        cscli collections install crowdsecurity/traefik crowdsecurity/http-cve crowdsecurity/appsec-virtual-patching crowdsecurity/appsec-generic-rules || true
+
+        echo "Init complete. You can add a smoke-test decision with:"
+        echo "docker exec bastionflow-crowdsec cscli decisions add --ip <your-ip> -d 10m --reason compose-test"
+    networks:
+      - edge
+    restart: "no"
+
+  dashboard:
+    build:
+      context: .
+    container_name: bastionflow-dashboard
+    environment:
+      CROWDSEC_LAPI_URL: http://crowdsec:8080
+      CROWDSEC_LAPI_USER_AGENT: crowdsec/v1.7.7
+      CROWDSEC_MACHINE_ID: dashboard
+      CROWDSEC_MACHINE_PASSWORD: ${CROWDSEC_DASHBOARD_MACHINE_PASSWORD:-local-dashboard-machine-password-change-me}
+      CROWDSEC_BOUNCER_API_KEY: ${CROWDSEC_BOUNCER_API_KEY:-local-traefik-bouncer-key-change-me}
+      CROWDSEC_PROMETHEUS_URL: http://crowdsec:6060/metrics
+      CROWDSEC_TARGET_NAME: Traefik edge
+      CROWDSEC_TARGET_LNG: "-3.7038"
+      CROWDSEC_TARGET_LAT: "40.4168"
+      CROWDSEC_ALLOWLIST: 127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+      AUTO_BLOCK_MAX_DURATION: 4h
+      AUTO_BLOCK_MIN_ALERTS: "3"
+      AUTO_BLOCK_RATE_LIMIT_PER_HOUR: "20"
+      CROWDSEC_PANEL_DB_PATH: /data/bastionflow.sqlite
+      CROWDSEC_PANEL_PUBLIC_URL: http://bastionflow.localhost:${PORT:-8080}
+      TRAEFIK_ACCESS_LOG_PATH: /var/log/traefik/access.log
+      CROWDSEC_TRAEFIK_DYNAMIC_CONFIG: /etc/traefik/dynamic/dynamic.yml
+      CROWDSEC_INTERNAL_TOKEN: ${CROWDSEC_INTERNAL_TOKEN:-local-internal-token-change-me}
+      CROWDSEC_ALLOW_INSECURE_WEBHOOKS: ${CROWDSEC_ALLOW_INSECURE_WEBHOOKS:-false}
+      CROWDSEC_ALLOW_PRIVATE_WEBHOOKS: ${CROWDSEC_ALLOW_PRIVATE_WEBHOOKS:-false}
+      CROWDSEC_EDGE_MIDDLEWARES: security-headers@file,edge-rate-limit@file,crowdsec-bouncer@file,edge-gate@file
+      EDGE_GATE_ENABLED: ${EDGE_GATE_ENABLED:-true}
+      EDGE_GATE_BOT_CHALLENGE_ENABLED: ${EDGE_GATE_BOT_CHALLENGE_ENABLED:-true}
+      EDGE_GATE_AUTH_ENABLED: ${EDGE_GATE_AUTH_ENABLED:-true}
+      EDGE_GATE_PASSWORD: ${EDGE_GATE_PASSWORD:-local-edge-gate-password-change-me}
+      EDGE_GATE_COOKIE_SECRET: ${EDGE_GATE_COOKIE_SECRET:-local-edge-gate-secret-change-me}
+      CROWDSEC_GEOIP_LOOKUP_URLS: ${CROWDSEC_GEOIP_LOOKUP_URLS:-https://ipwho.is/{ip},https://ipapi.co/{ip}/json/,https://free.freeipapi.com/api/json/{ip},https://api.ipwho.org/ip/{ip},http://ip-api.com/json/{ip}}
+    depends_on:
+      crowdsec:
+        condition: service_started
+      crowdsec-init:
+        condition: service_completed_successfully
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.bastionflow.rule=Host(`bastionflow.localhost`)
+      - traefik.http.routers.bastionflow.entrypoints=web
+      - traefik.http.routers.bastionflow.middlewares=security-headers@file,edge-rate-limit@file,crowdsec-bouncer@file,edge-gate@file
+      - traefik.http.routers.bastionflow.priority=10
+      - traefik.http.services.bastionflow.loadbalancer.server.port=3000
+
+      - traefik.http.routers.bastionflow-public.rule=Host(`bastionflow.localhost`) && (PathPrefix(`/edge-gate`) || PathPrefix(`/api/edge-gate`))
+      - traefik.http.routers.bastionflow-public.entrypoints=web
+      - traefik.http.routers.bastionflow-public.priority=200
+      - traefik.http.routers.bastionflow-public.middlewares=security-headers@file,edge-rate-limit@file,crowdsec-bouncer@file
+      - traefik.http.routers.bastionflow-public.service=bastionflow
+
+      - traefik.http.routers.edge-gate-whoami.rule=Host(`whoami.localhost`) && (PathPrefix(`/edge-gate`) || PathPrefix(`/api/edge-gate`))
+      - traefik.http.routers.edge-gate-whoami.entrypoints=web
+      - traefik.http.routers.edge-gate-whoami.priority=100
+      - traefik.http.routers.edge-gate-whoami.middlewares=security-headers@file,edge-rate-limit@file,crowdsec-bouncer@file
+      - traefik.http.routers.edge-gate-whoami.service=bastionflow
+    volumes:
+      - dashboard-data:/data
+      - traefik-logs:/var/log/traefik:ro
+      - traefik-dynamic:/etc/traefik/dynamic:ro
+    networks:
+      - edge
+    restart: unless-stopped
+
+
+  notification-worker:
+    profiles: ["notifications"]
+    build:
+      context: .
+    container_name: bastionflow-notification-worker
+    command: ["node", "scripts/notification-worker.mjs"]
+    environment:
+      CROWDSEC_PANEL_INTERNAL_URL: http://dashboard:3000
+      CROWDSEC_INTERNAL_TOKEN: ${CROWDSEC_INTERNAL_TOKEN:-local-internal-token-change-me}
+      CROWDSEC_EDGE_MIDDLEWARES: security-headers@file,edge-rate-limit@file,crowdsec-bouncer@file,edge-gate@file
+      EDGE_GATE_ENABLED: ${EDGE_GATE_ENABLED:-true}
+      EDGE_GATE_BOT_CHALLENGE_ENABLED: ${EDGE_GATE_BOT_CHALLENGE_ENABLED:-true}
+      EDGE_GATE_AUTH_ENABLED: ${EDGE_GATE_AUTH_ENABLED:-true}
+      EDGE_GATE_PASSWORD: ${EDGE_GATE_PASSWORD:-local-edge-gate-password-change-me}
+      EDGE_GATE_COOKIE_SECRET: ${EDGE_GATE_COOKIE_SECRET:-local-edge-gate-secret-change-me}
+      NOTIFICATION_WORKER_INTERVAL_MS: ${NOTIFICATION_WORKER_INTERVAL_MS:-5000}
+      NOTIFICATION_WORKER_MIN_SEVERITY: ${NOTIFICATION_WORKER_MIN_SEVERITY:-info}
+      CROWDSEC_ALLOW_INSECURE_WEBHOOKS: ${CROWDSEC_ALLOW_INSECURE_WEBHOOKS:-false}
+      CROWDSEC_ALLOW_PRIVATE_WEBHOOKS: ${CROWDSEC_ALLOW_PRIVATE_WEBHOOKS:-false}
+    depends_on:
+      dashboard:
+        condition: service_started
+    networks:
+      - edge
+    restart: unless-stopped
+
+  whoami:
+    image: traefik/whoami:v1.11.0
+    container_name: bastionflow-whoami
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.whoami.rule=Host(`whoami.localhost`)
+      - traefik.http.routers.whoami.entrypoints=web
+      - traefik.http.routers.whoami.middlewares=security-headers@file,edge-rate-limit@file,crowdsec-bouncer@file,edge-gate@file
+      - traefik.http.services.whoami.loadbalancer.server.port=80
+    networks:
+      - edge
+    restart: unless-stopped
+
+networks:
+  edge:
+    name: bastionflow-test
+
+volumes:
+  crowdsec-config:
+  crowdsec-data:
+  traefik-logs:
+  traefik-dynamic:
+  dashboard-data:

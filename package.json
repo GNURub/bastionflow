@@ -1,0 +1,60 @@
+{
+  "name": "bastionflow",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "portless",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "next build",
+    "start": "next start",
+    "dev:app": "next dev",
+    "dev:plain": "next dev",
+    "stack:up": "docker compose --env-file .env.compose.test -f docker-compose.test.yml up --build",
+    "stack:up:detached": "docker compose --env-file .env.compose.test -f docker-compose.test.yml up -d --build",
+    "stack:down": "docker compose --env-file .env.compose.test -f docker-compose.test.yml down",
+    "stack:down:volumes": "docker compose --env-file .env.compose.test -f docker-compose.test.yml down -v",
+    "stack:portless": "portless run --name bastionflow pnpm run stack:up",
+    "worker:notifications": "node scripts/notification-worker.mjs",
+    "simulate:attacks": "node scripts/simulate-attacks.mjs",
+    "image:build": "PLATFORMS=linux/amd64 docker buildx bake -f docker-bake.hcl --load",
+    "image:push": "docker buildx bake -f docker-bake.hcl --push",
+    "image:metadata": "docker buildx bake -f docker-bake.hcl --print"
+  },
+  "dependencies": {
+    "@radix-ui/react-slot": "1.2.4",
+    "@tailwindcss/postcss": "4.2.4",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
+    "lucide-react": "1.14.0",
+    "maplibre-gl": "5.24.0",
+    "next": "16.2.5",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "tailwind-merge": "3.5.0",
+    "tailwindcss": "4.2.4",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/geojson": "7946.0.16",
+    "@types/node": "25.6.0",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "eslint": "9.39.2",
+    "eslint-config-next": "16.2.5",
+    "portless": "0.12.0",
+    "typescript": "6.0.3",
+    "vitest": "4.1.5"
+  },
+  "portless": {
+    "name": "bastionflow",
+    "script": "dev:app"
+  },
+  "packageManager": "pnpm@11.0.4",
+  "engines": {
+    "node": ">=24.0.0",
+    "pnpm": ">=11.0.0"
+  }
+}

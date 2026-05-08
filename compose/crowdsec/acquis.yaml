@@ -1,0 +1,5 @@
+# Parse Traefik access logs so CrowdSec can create decisions from HTTP behavior.
+filenames:
+  - /var/log/traefik/access.log
+labels:
+  type: traefik

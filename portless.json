@@ -1,0 +1,4 @@
+{
+  "name": "bastionflow",
+  "script": "dev:app"
+}
