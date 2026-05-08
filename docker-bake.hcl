@@ -26,6 +26,10 @@ variable "PLATFORMS" {
   default = "linux/amd64,linux/arm64"
 }
 
+variable "BUN_VERSION" {
+  default = "1"
+}
+
 group "default" {
   targets = ["bastionflow"]
 }
@@ -43,6 +47,7 @@ target "bastionflow" {
     REVISION = REVISION
     SOURCE = SOURCE
     CREATED = CREATED
+    BUN_VERSION = BUN_VERSION
   }
   labels = {
     "org.opencontainers.image.title" = "BastionFlow"

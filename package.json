@@ -8,17 +8,17 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "build": "next build",
-    "start": "next start",
-    "dev:app": "next dev",
-    "dev:plain": "next dev",
+    "build": "bun --bun next build",
+    "start": "bun --bun next start",
+    "dev:app": "bun --bun next dev",
+    "dev:plain": "bun --bun next dev",
     "stack:up": "docker compose --env-file .env.compose.test -f docker-compose.test.yml up --build",
     "stack:up:detached": "docker compose --env-file .env.compose.test -f docker-compose.test.yml up -d --build",
     "stack:down": "docker compose --env-file .env.compose.test -f docker-compose.test.yml down",
     "stack:down:volumes": "docker compose --env-file .env.compose.test -f docker-compose.test.yml down -v",
-    "stack:portless": "portless run --name bastionflow pnpm run stack:up",
-    "worker:notifications": "node scripts/notification-worker.mjs",
-    "simulate:attacks": "node scripts/simulate-attacks.mjs",
+    "stack:portless": "portless run --name bastionflow bun run stack:up",
+    "worker:notifications": "bun scripts/notification-worker.mjs",
+    "simulate:attacks": "bun scripts/simulate-attacks.mjs",
     "image:build": "PLATFORMS=linux/amd64 docker buildx bake -f docker-bake.hcl --load",
     "image:push": "docker buildx bake -f docker-bake.hcl --push",
     "image:metadata": "docker buildx bake -f docker-bake.hcl --print"
@@ -52,9 +52,8 @@
     "name": "bastionflow",
     "script": "dev:app"
   },
-  "packageManager": "pnpm@11.0.8",
+  "packageManager": "bun@1.3.13",
   "engines": {
-    "node": ">=22.13.0",
-    "pnpm": ">=11.0.0"
+    "bun": ">=1.3.0"
   }
 }

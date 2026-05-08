@@ -21,7 +21,7 @@ services:
     profiles: ["notifications"]
     image: ${CROWDSEC_PANEL_IMAGE:-ghcr.io/gnurub/bastionflow:latest}
     container_name: bastionflow-notification-worker
-    command: ["node", "scripts/notification-worker.mjs"]
+    command: ["bun", "scripts/notification-worker.mjs"]
     env_file:
       - path: .env
         required: false

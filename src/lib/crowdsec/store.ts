@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import type { Database as BunDatabase } from "bun:sqlite";
 import { isAllowedTarget } from "@/lib/security/ip-allowlist";
 import { getCrowdSecConfig } from "./config";
 import type { CreateEdgeRateLimitRuleInput, CreateNotificationChannelInput, CrowdSecAlert, CrowdSecDecision, EdgeGateSettings, EdgeRateLimitRule, LocalAllowlistEntry, NotificationChannel, NotificationChannelType, NotificationWorkerStatus, Severity, UpdateEdgeGateSettingsInput } from "./types";
@@ -159,18 +159,21 @@ export interface IpIntelProfile extends CachedIpIntel {
   activity: IpActivityBucket[];
 }
 
-let db: DatabaseSync | null = null;
+const sqliteModuleSpecifier = "bun:sqlite";
+const { Database } = await import(sqliteModuleSpecifier) as typeof import("bun:sqlite");
+
+let db: BunDatabase | null = null;
 
 function dbPath(): string {
   return process.env.CROWDSEC_PANEL_DB_PATH?.trim() || "/tmp/bastionflow/panel.sqlite";
 }
 
-function database(): DatabaseSync {
+function database(): BunDatabase {
   if (db) return db;
   const path = dbPath();
   mkdirSync(dirname(path), { recursive: true });
-  db = new DatabaseSync(path);
-  db.exec(`
+  db = new Database(path, { create: true, strict: true });
+  db.run(`
     PRAGMA journal_mode = WAL;
     CREATE TABLE IF NOT EXISTS alerts (
       id TEXT PRIMARY KEY,
@@ -290,7 +293,7 @@ function database(): DatabaseSync {
   return db;
 }
 
-function migrateIpIntel(db: DatabaseSync): void {
+function migrateIpIntel(db: BunDatabase): void {
   const columns: Array<[string, string]> = [
     ["country_name", "TEXT"], ["region", "TEXT"], ["continent", "TEXT"], ["continent_code", "TEXT"], ["postal_code", "TEXT"],
     ["latitude", "REAL"], ["longitude", "REAL"], ["timezone", "TEXT"], ["currency", "TEXT"], ["languages", "TEXT"],
@@ -298,7 +301,7 @@ function migrateIpIntel(db: DatabaseSync): void {
     ["reverse_dns", "TEXT"], ["provider", "TEXT"]
   ];
   for (const [name, type] of columns) {
-    try { db.exec(`ALTER TABLE ip_intel ADD COLUMN ${name} ${type}`); } catch {}
+    try { db.run(`ALTER TABLE ip_intel ADD COLUMN ${name} ${type}`); } catch {}
   }
 }
 
@@ -692,15 +695,15 @@ export function persistAlerts(alerts: readonly CrowdSecAlert[], rawAlerts: reado
       raw_json=excluded.raw_json
   `);
   const observedAt = new Date().toISOString();
-  db.exec("BEGIN");
+  db.run("BEGIN");
   try {
     for (const [index, alert] of alerts.entries()) {
       stmt.run(alert.id, alert.scenario, alert.sourceIp ?? null, alert.sourceCountry ?? null, alert.sourceAsName ?? null, alert.events, alert.severity, alert.createdAt ?? null, alert.message, observedAt, JSON.stringify(rawAlerts[index] ?? alert));
       if (alert.sourceIp && (alert.sourceCountry || alert.sourceAsName)) upsertIpIntel(alert.sourceIp, { country: alert.sourceCountry, asName: alert.sourceAsName, provider: "crowdsec" });
     }
-    db.exec("COMMIT");
+    db.run("COMMIT");
   } catch (error) {
-    db.exec("ROLLBACK");
+    db.run("ROLLBACK");
     throw error;
   }
 }
@@ -725,15 +728,15 @@ export function persistDecisions(decisions: readonly CrowdSecDecision[]): void {
       raw_json=excluded.raw_json
   `);
   const observedAt = new Date().toISOString();
-  db.exec("BEGIN");
+  db.run("BEGIN");
   try {
     for (const decision of decisions) {
       stmt.run(decision.id, decision.origin, decision.scenario, decision.scope, decision.value, decision.type, decision.duration ?? null, decision.expiresAt ?? null, decision.country ?? null, decision.asName ?? null, observedAt, JSON.stringify(decision));
       if (decision.scope === "ip" && (decision.country || decision.asName)) upsertIpIntel(decision.value, { country: decision.country, asName: decision.asName, provider: "crowdsec" });
     }
-    db.exec("COMMIT");
+    db.run("COMMIT");
   } catch (error) {
-    db.exec("ROLLBACK");
+    db.run("ROLLBACK");
     throw error;
   }
 }

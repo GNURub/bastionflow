@@ -28,6 +28,7 @@ Traefik :8080
 CrowdSec reads Traefik access logs and creates alerts/decisions.
 The dashboard reads CrowdSec LAPI, Traefik logs and local SQLite state.
 Optional worker sends notifications even when the dashboard tab is closed.
+Runtime: Bun + bun:sqlite.
 ```
 
 ### Main features
@@ -75,8 +76,8 @@ The same image is used for both roles:
 
 | Container | Command |
 | --- | --- |
-| `bastionflow` | default Next.js server, `node server.js` |
-| `bastionflow-notification-worker` | `node scripts/notification-worker.mjs` |
+| `bastionflow` | default Next.js server, `bun server.js` |
+| `bastionflow-notification-worker` | `bun scripts/notification-worker.mjs` |
 
 > Official image path: `ghcr.io/gnurub/bastionflow`. Forks can override `CROWDSEC_PANEL_IMAGE` with their own image.
 
@@ -299,7 +300,7 @@ services:
   bastionflow-notification-worker:
     image: ${CROWDSEC_PANEL_IMAGE:-ghcr.io/gnurub/bastionflow:latest}
     container_name: bastionflow-notification-worker
-    command: ["node", "scripts/notification-worker.mjs"]
+    command: ["bun", "scripts/notification-worker.mjs"]
     env_file:
       - .env
     environment:
@@ -507,25 +508,25 @@ Install project dependencies first:
 
 ```bash
 corepack enable
-pnpm install --frozen-lockfile
+bun install --frozen-lockfile
 ```
 
 Run a local attack simulation:
 
 ```bash
-pnpm run simulate:attacks -- --duration=120 --rps=20
+bun run simulate:attacks -- --duration=120 --rps=20
 ```
 
 For visible map arcs in a local lab, use geolocatable demo source IPs. This only spoofs `X-Forwarded-For`; no traffic is sent to those IPs.
 
 ```bash
-pnpm run simulate:attacks -- --source-profile=global-demo --duration=120 --rps=20
+bun run simulate:attacks -- --source-profile=global-demo --duration=120 --rps=20
 ```
 
 To test dynamic Edge Gate rate limits, hammer `/admin`:
 
 ```bash
-pnpm run simulate:attacks -- --install-rate-limit --force-path=/admin --rps=30 --duration=45
+bun run simulate:attacks -- --install-rate-limit --force-path=/admin --rps=30 --duration=45
 ```
 
 ---
@@ -666,13 +667,13 @@ Install dependencies:
 
 ```bash
 corepack enable
-pnpm install --frozen-lockfile
+bun install --frozen-lockfile
 ```
 
 Run the Next.js app directly:
 
 ```bash
-pnpm run dev
+bun run dev
 ```
 
 Open:
@@ -685,7 +686,7 @@ Run the full Docker stack through Portless:
 
 ```bash
 cp .env.compose.test.example .env.compose.test
-pnpm run stack:portless
+bun run stack:portless
 ```
 
 Portless will choose a free port and wire it into the compose stack. On first run it may ask you to trust a local CA. That is expected.
@@ -701,7 +702,7 @@ The repository includes a Docker Buildx Bake file and GitHub Actions workflows.
 Print the resolved image build plan:
 
 ```bash
-pnpm run image:metadata
+bun run image:metadata
 ```
 
 ### Build locally
@@ -709,7 +710,7 @@ pnpm run image:metadata
 Build a local AMD64 image and load it into your Docker daemon:
 
 ```bash
-REGISTRY=ghcr.io IMAGE_NAME=gnurub/bastionflow VERSION=0.1.0 pnpm run image:build
+REGISTRY=ghcr.io IMAGE_NAME=gnurub/bastionflow VERSION=0.1.0 bun run image:build
 ```
 
 ### Push multi-arch image manually
@@ -723,7 +724,7 @@ VERSION=0.1.0 \
 REVISION=$(git rev-parse HEAD) \
 SOURCE=https://github.com/GNURub/bastionflow \
 CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
-pnpm run image:push
+bun run image:push
 ```
 
 ### GitHub Actions
@@ -844,7 +845,7 @@ docker logs bastionflow-crowdsec
 Use public/geolocatable source IPs in the simulator:
 
 ```bash
-pnpm run simulate:attacks -- --source-profile=global-demo --duration=120 --rps=20
+bun run simulate:attacks -- --source-profile=global-demo --duration=120 --rps=20
 ```
 
 Private IPs such as `172.20.0.1` are not geolocatable, so they cannot produce meaningful map arcs.
@@ -855,10 +856,10 @@ Private IPs such as `172.20.0.1` are not geolocatable, so they cannot produce me
 
 ```bash
 corepack enable
-pnpm install --frozen-lockfile
-pnpm run lint
-pnpm run typecheck
-pnpm test
+bun install --frozen-lockfile
+bun run lint
+bun run typecheck
+bun run test
 ```
 
 Docker compose config validation:

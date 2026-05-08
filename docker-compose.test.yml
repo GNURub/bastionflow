@@ -195,7 +195,7 @@ services:
     build:
       context: .
     container_name: bastionflow-notification-worker
-    command: ["node", "scripts/notification-worker.mjs"]
+    command: ["bun", "scripts/notification-worker.mjs"]
     environment:
       CROWDSEC_PANEL_INTERNAL_URL: http://dashboard:3000
       CROWDSEC_INTERNAL_TOKEN: ${CROWDSEC_INTERNAL_TOKEN:-local-internal-token-change-me}

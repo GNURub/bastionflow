@@ -1,24 +1,22 @@
 # syntax=docker/dockerfile:1
 
-ARG NODE_VERSION=22-alpine
-ARG PNPM_VERSION=11.0.8
+ARG BUN_VERSION=1
 
-FROM node:${NODE_VERSION} AS base
+FROM oven/bun:${BUN_VERSION}-alpine AS base
 WORKDIR /app
-ENV NEXT_TELEMETRY_DISABLED=1
-ARG PNPM_VERSION
-RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
+ENV NEXT_TELEMETRY_DISABLED=1 \
+    BUN_INSTALL_CACHE_DIR=/tmp/bun-cache
 
 FROM base AS deps
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN pnpm install --frozen-lockfile
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile
 
 FROM base AS builder
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN pnpm run build
+RUN bun --bun next build
 
-FROM node:${NODE_VERSION} AS runner
+FROM oven/bun:${BUN_VERSION}-alpine AS runner
 WORKDIR /app
 
 ARG VERSION=0.1.0
@@ -39,17 +37,17 @@ ENV NODE_ENV=production \
     PORT=3000 \
     HOSTNAME=0.0.0.0
 
-RUN addgroup -S nodejs \
-  && adduser -S nextjs -G nodejs \
+RUN addgroup -S app \
+  && adduser -S app -G app \
   && mkdir -p /data \
-  && chown -R nextjs:nodejs /data /app
+  && chown -R app:app /data /app
 
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-COPY --from=builder --chown=nextjs:nodejs /app/scripts ./scripts
+COPY --from=builder --chown=app:app /app/.next/standalone ./
+COPY --from=builder --chown=app:app /app/.next/static ./.next/static
+COPY --from=builder --chown=app:app /app/scripts ./scripts
 
-USER nextjs
+USER app
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD wget -qO- "http://127.0.0.1:${PORT}/api/health" >/dev/null || exit 1
-CMD ["node", "server.js"]
+  CMD bun -e "const r = await fetch('http://127.0.0.1:' + (process.env.PORT || 3000) + '/api/health'); process.exit(r.ok ? 0 : 1)"
+CMD ["bun", "server.js"]
