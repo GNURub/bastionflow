@@ -5,8 +5,8 @@ export interface CrowdSecConfig {
   bouncerApiKey?: string | undefined;
   prometheusUrl: string;
   targetName: string;
-  targetLng: number;
-  targetLat: number;
+  targetLng?: number | undefined;
+  targetLat?: number | undefined;
   cscliBin: string;
   cscliUseSudo: boolean;
   allowlist: string[];
@@ -25,6 +25,11 @@ function numberEnv(name: string, fallback: number): number {
   return Number.isFinite(value) ? value : fallback;
 }
 
+function optionalNumberEnv(name: string): number | undefined {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) ? value : undefined;
+}
+
 export function getCrowdSecConfig(): CrowdSecConfig {
   return {
     lapiUrl: optionalEnv("CROWDSEC_LAPI_URL") ?? "http://localhost:8080",
@@ -33,8 +38,8 @@ export function getCrowdSecConfig(): CrowdSecConfig {
     bouncerApiKey: optionalEnv("CROWDSEC_BOUNCER_API_KEY"),
     prometheusUrl: optionalEnv("CROWDSEC_PROMETHEUS_URL") ?? "http://localhost:6060/metrics",
     targetName: optionalEnv("CROWDSEC_TARGET_NAME") ?? "Protected edge",
-    targetLng: numberEnv("CROWDSEC_TARGET_LNG", -3.7038),
-    targetLat: numberEnv("CROWDSEC_TARGET_LAT", 40.4168),
+    targetLng: optionalNumberEnv("CROWDSEC_TARGET_LNG"),
+    targetLat: optionalNumberEnv("CROWDSEC_TARGET_LAT"),
     cscliBin: optionalEnv("CSCLI_BIN") ?? "cscli",
     cscliUseSudo: (optionalEnv("CSCLI_USE_SUDO") ?? "false") === "true",
     allowlist: (optionalEnv("CROWDSEC_ALLOWLIST") ?? "127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16").split(",").map((item) => item.trim()).filter(Boolean),

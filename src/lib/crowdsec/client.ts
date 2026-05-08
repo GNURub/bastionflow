@@ -121,7 +121,7 @@ export async function deleteDecision(id: string): Promise<void> {
 
 export async function getAttackArcs(): Promise<ApiEnvelope<AttackArc[]>> {
   const alerts = await getAlerts();
-  const alertArcs = attacksFromAlerts(alerts.data);
+  const alertArcs = await attacksFromAlerts(alerts.data);
   const accessArcs = await attacksFromEvents(listAttackEvents(120));
   const seen = new Set<string>();
   const arcs = [...accessArcs, ...alertArcs].filter((arc) => {

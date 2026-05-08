@@ -1,5 +1,5 @@
 import { getCrowdSecConfig } from "./config";
-import { enrichIp } from "./geo";
+import { enrichIp, getPublicTargetLocation } from "./geo";
 import type { AttackArc, AttackEvent, CrowdSecAlert, Coordinates } from "./types";
 
 const countryCoordinates: Record<string, Coordinates> = {
@@ -8,9 +8,20 @@ const countryCoordinates: Record<string, Coordinates> = {
   NL: [4.9041, 52.3676], RU: [37.6173, 55.7558], SG: [103.8198, 1.3521], US: [-74.006, 40.7128], ZA: [18.4241, -33.9249]
 };
 
-export function attacksFromAlerts(alerts: readonly CrowdSecAlert[]): AttackArc[] {
+const fallbackTarget: Coordinates = [-3.7038, 40.4168];
+
+async function targetContext(): Promise<{ name: string; coordinates: Coordinates }> {
   const config = getCrowdSecConfig();
-  const target: Coordinates = [config.targetLng, config.targetLat];
+  if (config.targetLng !== undefined && config.targetLat !== undefined) {
+    return { name: config.targetName, coordinates: [config.targetLng, config.targetLat] };
+  }
+  const detected = await getPublicTargetLocation();
+  if (detected) return { name: config.targetName === "Protected edge" ? detected.name : config.targetName, coordinates: [detected.longitude, detected.latitude] };
+  return { name: config.targetName, coordinates: fallbackTarget };
+}
+
+export async function attacksFromAlerts(alerts: readonly CrowdSecAlert[]): Promise<AttackArc[]> {
+  const target = await targetContext();
   return alerts
     .filter((alert) => Boolean(alert.sourceIp && alert.sourceCountry && countryCoordinates[alert.sourceCountry.toUpperCase()]))
     .map((alert, index): AttackArc => {
@@ -20,9 +31,9 @@ export function attacksFromAlerts(alerts: readonly CrowdSecAlert[]): AttackArc[]
         id: `${alert.id}-${index}`,
         sourceIp: alert.sourceIp!,
         origin: country,
-        destination: config.targetName,
+        destination: target.name,
         from,
-        to: target,
+        to: target.coordinates,
         severity: alert.severity,
         scenario: alert.scenario,
         timestamp: alert.createdAt ?? new Date().toISOString()
@@ -32,8 +43,7 @@ export function attacksFromAlerts(alerts: readonly CrowdSecAlert[]): AttackArc[]
 
 
 export async function attacksFromEvents(events: readonly AttackEvent[]): Promise<AttackArc[]> {
-  const config = getCrowdSecConfig();
-  const target: Coordinates = [config.targetLng, config.targetLat];
+  const target = await targetContext();
   const candidates = events.filter((event) => Boolean(event.sourceIp)).slice(0, 80);
   const enriched = await Promise.all(candidates.map(async (event) => ({ event, geo: event.sourceIp ? await enrichIp(event.sourceIp) : null })));
   return enriched.flatMap(({ event, geo }, index): AttackArc[] => {
@@ -43,9 +53,9 @@ export async function attacksFromEvents(events: readonly AttackEvent[]): Promise
       id: `access-${event.id}-${index}`,
       sourceIp: event.sourceIp!,
       origin: country,
-      destination: event.host ?? config.targetName,
+      destination: event.host ?? target.name,
       from: countryCoordinates[country],
-      to: target,
+      to: target.coordinates,
       severity: event.severity,
       scenario: event.scenario,
       timestamp: event.timestamp

@@ -139,8 +139,6 @@ services:
       CROWDSEC_BOUNCER_API_KEY: ${CROWDSEC_BOUNCER_API_KEY:-local-traefik-bouncer-key-change-me}
       CROWDSEC_PROMETHEUS_URL: http://crowdsec:6060/metrics
       CROWDSEC_TARGET_NAME: Traefik edge
-      CROWDSEC_TARGET_LNG: "-3.7038"
-      CROWDSEC_TARGET_LAT: "40.4168"
       CROWDSEC_ALLOWLIST: 127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
       AUTO_BLOCK_MAX_DURATION: 4h
       AUTO_BLOCK_MIN_ALERTS: "3"
