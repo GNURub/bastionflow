@@ -17,6 +17,8 @@ interface PublicTargetLocation {
 }
 
 let publicTargetLocationCache: { expiresAt: number; value: PublicTargetLocation } | null = null;
+let publicTargetLookupInFlight = false;
+const ipEnrichmentInFlight = new Set<string>();
 
 function record(value: unknown): JsonRecord {
   return value && typeof value === "object" ? value as JsonRecord : {};
@@ -162,8 +164,7 @@ function parseGeo(body: unknown, provider: string): Omit<CachedIpIntel, "ip"> | 
   return hasValue ? enrichment : null;
 }
 
-export async function getPublicTargetLocation(): Promise<PublicTargetLocation | null> {
-  if (publicTargetLocationCache && publicTargetLocationCache.expiresAt > Date.now()) return publicTargetLocationCache.value;
+async function resolvePublicTargetLocation(): Promise<PublicTargetLocation | null> {
   for (const provider of publicTargetGeoProviders()) {
     try {
       const response = await fetch(provider.url(""), { headers: { accept: "application/json", "user-agent": "bastionflow/0.1" }, cache: "no-store", signal: AbortSignal.timeout(2_500) });
@@ -180,6 +181,20 @@ export async function getPublicTargetLocation(): Promise<PublicTargetLocation | 
       publicTargetLocationCache = { value, expiresAt: Date.now() + 6 * 60 * 60_000 };
       return value;
     } catch {}
+  }
+  return null;
+}
+
+export async function getPublicTargetLocation(): Promise<PublicTargetLocation | null> {
+  if (publicTargetLocationCache && publicTargetLocationCache.expiresAt > Date.now()) return publicTargetLocationCache.value;
+  return resolvePublicTargetLocation();
+}
+
+export function getCachedPublicTargetLocation(): PublicTargetLocation | null {
+  if (publicTargetLocationCache && publicTargetLocationCache.expiresAt > Date.now()) return publicTargetLocationCache.value;
+  if (!publicTargetLookupInFlight) {
+    publicTargetLookupInFlight = true;
+    void resolvePublicTargetLocation().finally(() => { publicTargetLookupInFlight = false; });
   }
   return null;
 }
@@ -222,18 +237,33 @@ export async function enrichIp(ip: string): Promise<CachedIpIntel | null> {
   return getCachedIpIntel(ip) ?? cached;
 }
 
+function isFreshEnough(cached: CachedIpIntel | null): cached is CachedIpIntel {
+  return Boolean(cached?.country || cached?.asName || cached?.city || cached?.reverseDns);
+}
+
+export function getCachedIpIntelOrSchedule(ip: string): CachedIpIntel | null {
+  const cached = getCachedIpIntel(ip);
+  if (isFreshEnough(cached)) return cached;
+  if (!classifyIp(ip).isPublic) return cached;
+  if (!ipEnrichmentInFlight.has(ip)) {
+    ipEnrichmentInFlight.add(ip);
+    void enrichIp(ip).finally(() => { ipEnrichmentInFlight.delete(ip); });
+  }
+  return cached;
+}
+
 export async function enrichAlertsWithGeo(alerts: readonly CrowdSecAlert[]): Promise<CrowdSecAlert[]> {
-  return Promise.all(alerts.map(async (alert) => {
+  return alerts.map((alert) => {
     if (!alert.sourceIp || alert.sourceCountry) return alert;
-    const geo = await enrichIp(alert.sourceIp);
+    const geo = getCachedIpIntelOrSchedule(alert.sourceIp);
     return geo?.country || geo?.asName ? { ...alert, sourceCountry: geo.country ?? alert.sourceCountry, sourceAsName: geo.asName ?? alert.sourceAsName } : alert;
-  }));
+  });
 }
 
 export async function enrichDecisionsWithGeo(decisions: readonly CrowdSecDecision[]): Promise<CrowdSecDecision[]> {
-  return Promise.all(decisions.map(async (decision) => {
+  return decisions.map((decision) => {
     if (decision.scope !== "ip" || decision.country) return decision;
-    const geo = await enrichIp(decision.value);
+    const geo = getCachedIpIntelOrSchedule(decision.value);
     return geo?.country || geo?.asName ? { ...decision, country: geo.country ?? decision.country, asName: geo.asName ?? decision.asName } : decision;
-  }));
+  });
 }

@@ -1,5 +1,5 @@
 import { getAlerts, getDecisions } from "@/lib/crowdsec/client";
-import { enrichIp, enrichReverseDns } from "@/lib/crowdsec/geo";
+import { getCachedIpIntelOrSchedule } from "@/lib/crowdsec/geo";
 import { getIpProfile } from "@/lib/crowdsec/store";
 
 export const runtime = "nodejs";
@@ -14,6 +14,9 @@ export async function GET(_request: Request, context: { params: Promise<{ value:
   const ip = decodeURIComponent(value ?? "").trim();
   if (!ip || !isSafeIpLookup(ip)) return Response.json({ error: "Invalid IP value" }, { status: 400 });
 
-  await Promise.allSettled([getAlerts(), getDecisions(), enrichIp(ip), enrichReverseDns(ip)]);
+  getCachedIpIntelOrSchedule(ip);
+  void getAlerts();
+  void getDecisions();
+
   return Response.json({ data: getIpProfile(ip), source: "crowdsec" });
 }

@@ -1,5 +1,6 @@
 import { audit } from "./audit";
 import { evaluateAutoDecision } from "./auto-rules";
+import { cachedEnvelope, clearEnvelopeCache, createEnvelopeCache } from "./cache";
 import { getCrowdSecConfig } from "./config";
 import { attacksFromAlerts, attacksFromEvents } from "./attacks";
 import { normalizeAlert, normalizeDecision } from "./normalizers";
@@ -15,6 +16,11 @@ interface TokenCache {
 }
 
 let tokenCache: TokenCache | null = null;
+const alertsCache = createEnvelopeCache<CrowdSecAlert[]>();
+const decisionsCache = createEnvelopeCache<CrowdSecDecision[]>();
+const attackArcsCache = createEnvelopeCache<AttackArc[]>();
+const fastTtlMs = 2_000;
+const staleTtlMs = 30_000;
 
 function jsonResponse<T>(data: T, source: ApiEnvelope<T>["source"], error?: string): ApiEnvelope<T> {
   return error ? { data, source, error } : { data, source };
@@ -29,7 +35,7 @@ async function login(): Promise<string> {
     headers: { "content-type": "application/json", "user-agent": process.env.CROWDSEC_LAPI_USER_AGENT ?? "crowdsec/v1.7.7" },
     body: JSON.stringify({ machine_id: config.machineId, password: config.machinePassword }),
     cache: "no-store",
-    signal: AbortSignal.timeout(5_000)
+    signal: AbortSignal.timeout(config.lapiTimeoutMs)
   });
   if (!response.ok) throw new Error(`CrowdSec login failed with ${response.status}`);
   const body = (await response.json()) as { token?: string; expire?: string };
@@ -49,39 +55,39 @@ async function lapiFetch(path: string, init: RequestInit = {}, write = false): P
   } else if (config.bouncerApiKey) {
     headers.set("x-api-key", config.bouncerApiKey);
   }
-  return fetch(`${config.lapiUrl}${path}`, { ...init, headers, cache: "no-store", signal: AbortSignal.timeout(7_000) });
+  return fetch(`${config.lapiUrl}${path}`, { ...init, headers, cache: "no-store", signal: AbortSignal.timeout(config.lapiTimeoutMs) });
+}
+
+async function loadAlerts(): Promise<ApiEnvelope<CrowdSecAlert[]>> {
+  const response = await lapiFetch("/v1/alerts?limit=50");
+  if (!response.ok) throw new Error(`CrowdSec alerts returned ${response.status}`);
+  const body = (await response.json()) as unknown;
+  const rows = Array.isArray(body) ? body : Array.isArray((body as { alerts?: unknown[] }).alerts) ? (body as { alerts: unknown[] }).alerts : [];
+  const alerts = await enrichAlertsWithGeo(rows.map(normalizeAlert));
+  persistAlerts(alerts, rows);
+  return jsonResponse(alerts, "crowdsec");
 }
 
 export async function getAlerts(): Promise<ApiEnvelope<CrowdSecAlert[]>> {
-  try {
-    const response = await lapiFetch("/v1/alerts?limit=50");
-    if (!response.ok) throw new Error(`CrowdSec alerts returned ${response.status}`);
-    const body = (await response.json()) as unknown;
-    const rows = Array.isArray(body) ? body : Array.isArray((body as { alerts?: unknown[] }).alerts) ? (body as { alerts: unknown[] }).alerts : [];
-    const alerts = await enrichAlertsWithGeo(rows.map(normalizeAlert));
-    persistAlerts(alerts, rows);
-    return jsonResponse(alerts, "crowdsec");
-  } catch (error) {
-    return jsonResponse([], "partial", error instanceof Error ? error.message : "Unable to fetch alerts");
-  }
+  return cachedEnvelope(alertsCache, fastTtlMs, staleTtlMs, loadAlerts, [], "Unable to fetch alerts");
+}
+
+async function loadDecisions(): Promise<ApiEnvelope<CrowdSecDecision[]>> {
+  const config = getCrowdSecConfig();
+  const headers = new Headers({ accept: "application/json", "user-agent": process.env.CROWDSEC_LAPI_USER_AGENT ?? "crowdsec/v1.7.7" });
+  if (!config.bouncerApiKey) throw new Error("Missing CrowdSec bouncer API key for decisions read");
+  headers.set("x-api-key", config.bouncerApiKey);
+  const response = await fetch(`${config.lapiUrl}/v1/decisions`, { headers, cache: "no-store", signal: AbortSignal.timeout(config.lapiTimeoutMs) });
+  if (!response.ok) throw new Error(`CrowdSec decisions returned ${response.status}`);
+  const body = (await response.json()) as unknown;
+  const rows = Array.isArray(body) ? body : [];
+  const decisions = await enrichDecisionsWithGeo(rows.map(normalizeDecision));
+  persistDecisions(decisions);
+  return jsonResponse(decisions, "crowdsec");
 }
 
 export async function getDecisions(): Promise<ApiEnvelope<CrowdSecDecision[]>> {
-  const config = getCrowdSecConfig();
-  try {
-    const headers = new Headers({ accept: "application/json", "user-agent": process.env.CROWDSEC_LAPI_USER_AGENT ?? "crowdsec/v1.7.7" });
-    if (!config.bouncerApiKey) throw new Error("Missing CrowdSec bouncer API key for decisions read");
-    headers.set("x-api-key", config.bouncerApiKey);
-    const response = await fetch(`${config.lapiUrl}/v1/decisions`, { headers, cache: "no-store", signal: AbortSignal.timeout(7_000) });
-    if (!response.ok) throw new Error(`CrowdSec decisions returned ${response.status}`);
-    const body = (await response.json()) as unknown;
-    const rows = Array.isArray(body) ? body : [];
-    const decisions = await enrichDecisionsWithGeo(rows.map(normalizeDecision));
-    persistDecisions(decisions);
-    return jsonResponse(decisions, "crowdsec");
-  } catch (error) {
-    return jsonResponse([], "partial", error instanceof Error ? error.message : "Unable to fetch decisions");
-  }
+  return cachedEnvelope(decisionsCache, fastTtlMs, staleTtlMs, loadDecisions, [], "Unable to fetch decisions");
 }
 
 export async function createDecision(input: CreateDecisionInput): Promise<CrowdSecDecision> {
@@ -103,6 +109,8 @@ export async function createDecision(input: CreateDecisionInput): Promise<CrowdS
   const response = await lapiFetch("/v1/decisions", { method: "POST", body: JSON.stringify(payload) }, true);
   if (!response.ok) throw new Error(`CrowdSec decision create failed with ${response.status}`);
   await audit({ action: "decision.create", actor: input.mode === "automatic" ? "auto-rule" : "panel", target: input.value, result: "allowed", reason: input.reason, metadata: { scope: input.scope, type: input.type, duration: input.duration } });
+  clearEnvelopeCache(decisionsCache);
+  clearEnvelopeCache(attackArcsCache);
   try {
     return normalizeDecision(await response.json());
   } catch {
@@ -117,9 +125,11 @@ export async function deleteDecision(id: string): Promise<void> {
     throw new Error(`CrowdSec decision delete failed with ${response.status}${body ? `: ${body.slice(0, 200)}` : ""}`);
   }
   await audit({ action: "decision.delete", actor: "panel", target: id, result: "allowed", reason: "Operator unblock" });
+  clearEnvelopeCache(decisionsCache);
+  clearEnvelopeCache(attackArcsCache);
 }
 
-export async function getAttackArcs(): Promise<ApiEnvelope<AttackArc[]>> {
+async function loadAttackArcs(): Promise<ApiEnvelope<AttackArc[]>> {
   const alerts = await getAlerts();
   const alertArcs = await attacksFromAlerts(alerts.data);
   const accessArcs = await attacksFromEvents(listAttackEvents(120));
@@ -131,4 +141,8 @@ export async function getAttackArcs(): Promise<ApiEnvelope<AttackArc[]>> {
     return true;
   }).slice(0, 120);
   return jsonResponse(arcs, alerts.source, alerts.error);
+}
+
+export async function getAttackArcs(): Promise<ApiEnvelope<AttackArc[]>> {
+  return cachedEnvelope(attackArcsCache, 2_000, staleTtlMs, loadAttackArcs, [], "Unable to calculate attack arcs");
 }

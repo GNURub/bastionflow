@@ -1,4 +1,3 @@
-import { getAlerts } from "@/lib/crowdsec/client";
 import { listAttackEvents, summarizeCampaigns } from "@/lib/crowdsec/events";
 
 export const runtime = "nodejs";
@@ -15,9 +14,8 @@ export async function GET(): Promise<Response> {
         if (closed || pushInFlight) return;
         pushInFlight = true;
         try {
-          const alerts = await getAlerts();
           const events = listAttackEvents(120);
-          const payload = { data: { events, campaigns: summarizeCampaigns(events) }, source: alerts.source, error: alerts.error };
+          const payload = { data: { events, campaigns: summarizeCampaigns(events) }, source: "crowdsec" };
           if (!closed) controller.enqueue(encoder.encode(`event: attack-events\ndata: ${JSON.stringify(payload)}\n\n`));
         } catch {
           // Keep the SSE connection alive; the next tick can retry.
@@ -26,7 +24,7 @@ export async function GET(): Promise<Response> {
         }
       }
       await push();
-      timer = setInterval(() => void push(), 3_000);
+      timer = setInterval(() => void push(), 5_000);
     },
     cancel() {
       closed = true;

@@ -23,7 +23,7 @@ export async function GET(): Promise<Response> {
         }
       }
       await push();
-      timer = setInterval(() => void push(), 3_000);
+      timer = setInterval(() => void push(), 5_000);
     },
     cancel() {
       closed = true;

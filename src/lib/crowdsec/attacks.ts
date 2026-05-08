@@ -1,5 +1,5 @@
 import { getCrowdSecConfig } from "./config";
-import { enrichIp, getPublicTargetLocation } from "./geo";
+import { getCachedIpIntelOrSchedule, getCachedPublicTargetLocation } from "./geo";
 import type { AttackArc, AttackEvent, CrowdSecAlert, Coordinates } from "./types";
 
 const countryCoordinates: Record<string, Coordinates> = {
@@ -15,7 +15,7 @@ async function targetContext(): Promise<{ name: string; coordinates: Coordinates
   if (config.targetLng !== undefined && config.targetLat !== undefined) {
     return { name: config.targetName, coordinates: [config.targetLng, config.targetLat] };
   }
-  const detected = await getPublicTargetLocation();
+  const detected = getCachedPublicTargetLocation();
   if (detected) return { name: config.targetName === "Protected edge" ? detected.name : config.targetName, coordinates: [detected.longitude, detected.latitude] };
   return { name: config.targetName, coordinates: fallbackTarget };
 }
@@ -45,7 +45,7 @@ export async function attacksFromAlerts(alerts: readonly CrowdSecAlert[]): Promi
 export async function attacksFromEvents(events: readonly AttackEvent[]): Promise<AttackArc[]> {
   const target = await targetContext();
   const candidates = events.filter((event) => Boolean(event.sourceIp)).slice(0, 80);
-  const enriched = await Promise.all(candidates.map(async (event) => ({ event, geo: event.sourceIp ? await enrichIp(event.sourceIp) : null })));
+  const enriched = candidates.map((event) => ({ event, geo: event.sourceIp ? getCachedIpIntelOrSchedule(event.sourceIp) : null }));
   return enriched.flatMap(({ event, geo }, index): AttackArc[] => {
     const country = geo?.country?.toUpperCase();
     if (!country || !countryCoordinates[country]) return [];

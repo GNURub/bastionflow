@@ -82,7 +82,7 @@ export function DashboardShell(): React.ReactElement {
     void refresh();
     const timer = setInterval(() => {
       if (active) void refresh({ silent: true }).catch(() => undefined);
-    }, 5_000);
+    }, 10_000);
     return () => { active = false; clearInterval(timer); };
   }, [refresh]);
 

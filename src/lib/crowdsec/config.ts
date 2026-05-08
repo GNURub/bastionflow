@@ -13,6 +13,9 @@ export interface CrowdSecConfig {
   autoBlockMaxDuration: string;
   autoBlockMinAlerts: number;
   autoBlockRateLimitPerHour: number;
+  lapiTimeoutMs: number;
+  prometheusTimeoutMs: number;
+  cscliTimeoutMs: number;
 }
 
 function optionalEnv(name: string): string | undefined {
@@ -45,6 +48,9 @@ export function getCrowdSecConfig(): CrowdSecConfig {
     allowlist: (optionalEnv("CROWDSEC_ALLOWLIST") ?? "127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16").split(",").map((item) => item.trim()).filter(Boolean),
     autoBlockMaxDuration: optionalEnv("AUTO_BLOCK_MAX_DURATION") ?? "4h",
     autoBlockMinAlerts: numberEnv("AUTO_BLOCK_MIN_ALERTS", 3),
-    autoBlockRateLimitPerHour: numberEnv("AUTO_BLOCK_RATE_LIMIT_PER_HOUR", 20)
+    autoBlockRateLimitPerHour: numberEnv("AUTO_BLOCK_RATE_LIMIT_PER_HOUR", 20),
+    lapiTimeoutMs: numberEnv("CROWDSEC_LAPI_TIMEOUT_MS", 2_500),
+    prometheusTimeoutMs: numberEnv("CROWDSEC_PROMETHEUS_TIMEOUT_MS", 1_500),
+    cscliTimeoutMs: numberEnv("CSCLI_TIMEOUT_MS", 1_500)
   };
 }
