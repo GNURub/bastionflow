@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { BellRing, Plus, Send, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -32,18 +32,40 @@ export function NotificationChannelsPanel(): React.ReactElement {
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<CreateNotificationChannelInput>({ name: "", type: "slack", url: "", enabled: true, minSeverity: "high" });
+  const refreshInFlight = useRef(false);
+  const workerStatusInFlight = useRef(false);
 
   const refresh = useCallback(async () => {
-    const [nextChannels, nextWorker] = await Promise.all([getChannels(), getWorkerStatus()]);
-    setChannels(nextChannels);
-    setWorker(nextWorker);
+    if (refreshInFlight.current) return;
+    refreshInFlight.current = true;
+    workerStatusInFlight.current = true;
+    try {
+      const [nextChannels, nextWorker] = await Promise.all([getChannels(), getWorkerStatus()]);
+      setChannels(nextChannels);
+      setWorker(nextWorker);
+    } finally {
+      refreshInFlight.current = false;
+      workerStatusInFlight.current = false;
+    }
+  }, []);
+
+  const refreshWorkerStatus = useCallback(async () => {
+    if (refreshInFlight.current || workerStatusInFlight.current) return;
+    workerStatusInFlight.current = true;
+    try {
+      setWorker(await getWorkerStatus());
+    } catch {
+      setWorker((current) => current ? { ...current, online: false } : null);
+    } finally {
+      workerStatusInFlight.current = false;
+    }
   }, []);
 
   useEffect(() => {
     void refresh().catch((error: unknown) => setMessage(error instanceof Error ? error.message : "Unable to load notification channels"));
-    const timer = setInterval(() => void getWorkerStatus().then(setWorker).catch(() => setWorker((current) => current ? { ...current, online: false } : null)), 10_000);
+    const timer = setInterval(() => void refreshWorkerStatus(), 10_000);
     return () => clearInterval(timer);
-  }, [refresh]);
+  }, [refresh, refreshWorkerStatus]);
 
   const workerOnline = worker?.online === true;
 

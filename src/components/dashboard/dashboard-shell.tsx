@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Ban, Bot, Crosshair, DatabaseZap, Gavel, Radar, Server, ShieldAlert, type LucideIcon } from "lucide-react";
 import { AttackMap } from "./attack-map";
 import { AttackEventsPanel } from "./attack-events-panel";
@@ -54,8 +54,11 @@ export function DashboardShell(): React.ReactElement {
   const [state, setState] = useState<DashboardState>(emptyState);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+  const refreshInFlight = useRef(false);
 
   const refresh = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
+    if (refreshInFlight.current) return;
+    refreshInFlight.current = true;
     if (!silent) setLoading(true);
     try {
       const [alerts, decisions, machines, bouncers, metrics, attacks] = await Promise.all([
@@ -69,6 +72,7 @@ export function DashboardShell(): React.ReactElement {
       setState({ alerts, decisions, machines, bouncers, metrics, attacks });
       setLastRefresh(new Date());
     } finally {
+      refreshInFlight.current = false;
       if (!silent) setLoading(false);
     }
   }, []);

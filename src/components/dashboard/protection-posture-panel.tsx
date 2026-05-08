@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bot, Gauge, LockKeyhole, RadioTower, ShieldCheck, ShieldOff, Siren, Zap } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,21 +25,22 @@ async function loadPosture(): Promise<ProtectionPosture> {
 export function ProtectionPosturePanel(): React.ReactElement {
   const [posture, setPosture] = useState<ProtectionPosture | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const refreshInFlight = useRef(false);
 
-  function refresh(): void {
+  const refresh = useCallback((): void => {
+    if (refreshInFlight.current) return;
+    refreshInFlight.current = true;
     void loadPosture()
       .then((data) => { setPosture(data); setError(null); })
-      .catch((err: unknown) => { setError(err instanceof Error ? err.message : "Unable to load protection posture"); });
-  }
+      .catch((err: unknown) => { setError(err instanceof Error ? err.message : "Unable to load protection posture"); })
+      .finally(() => { refreshInFlight.current = false; });
+  }, []);
 
   useEffect(() => {
-    let active = true;
-    loadPosture()
-      .then((data) => { if (active) { setPosture(data); setError(null); } })
-      .catch((err: unknown) => { if (active) setError(err instanceof Error ? err.message : "Unable to load protection posture"); });
-    const timer = setInterval(() => void loadPosture().then(setPosture).catch(() => undefined), 15_000);
-    return () => { active = false; clearInterval(timer); };
-  }, []);
+    refresh();
+    const timer = setInterval(refresh, 15_000);
+    return () => { clearInterval(timer); };
+  }, [refresh]);
 
   const grouped = useMemo(() => {
     const controls = posture?.controls ?? [];

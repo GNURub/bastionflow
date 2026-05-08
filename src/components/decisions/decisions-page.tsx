@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Bot, ChevronDown, RefreshCcw, Search, ShieldBan, Trash2 } from "lucide-react";
 import { AddDecisionDialog } from "@/components/decisions/add-decision-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -107,8 +107,11 @@ export function DecisionsPage(): React.ReactElement {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const refreshInFlight = useRef(false);
 
   const refresh = useCallback(async () => {
+    if (refreshInFlight.current) return;
+    refreshInFlight.current = true;
     setLoading(true);
     setMessage(null);
     try {
@@ -121,6 +124,7 @@ export function DecisionsPage(): React.ReactElement {
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to load decisions");
     } finally {
+      refreshInFlight.current = false;
       setLoading(false);
     }
   }, []);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Gauge, Plus, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -38,9 +38,18 @@ export function EdgeRateLimitRulesPanel(): React.ReactElement {
   const [form, setForm] = useState<CreateEdgeRateLimitRuleInput>(defaultForm);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const refreshInFlight = useRef(false);
 
   const selectedTarget = useMemo(() => targetOptions.find((option) => option.value === form.target) ?? targetOptions[0]!, [form.target]);
-  const refresh = useCallback(async () => { setRules(await fetchRules()); }, []);
+  const refresh = useCallback(async () => {
+    if (refreshInFlight.current) return;
+    refreshInFlight.current = true;
+    try {
+      setRules(await fetchRules());
+    } finally {
+      refreshInFlight.current = false;
+    }
+  }, []);
 
   useEffect(() => { void refresh().catch((error: unknown) => setMessage(error instanceof Error ? error.message : "Unable to load rate limit rules")); }, [refresh]);
 

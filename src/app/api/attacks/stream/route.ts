@@ -6,13 +6,21 @@ export const dynamic = "force-dynamic";
 export async function GET(): Promise<Response> {
   const encoder = new TextEncoder();
   let closed = false;
+  let pushInFlight = false;
   let timer: ReturnType<typeof setInterval> | null = null;
   const stream = new ReadableStream({
     async start(controller) {
       async function push(): Promise<void> {
-        if (closed) return;
-        const payload = await getAttackArcs();
-        controller.enqueue(encoder.encode(`event: attacks\ndata: ${JSON.stringify(payload.data)}\n\n`));
+        if (closed || pushInFlight) return;
+        pushInFlight = true;
+        try {
+          const payload = await getAttackArcs();
+          if (!closed) controller.enqueue(encoder.encode(`event: attacks\ndata: ${JSON.stringify(payload.data)}\n\n`));
+        } catch {
+          // Keep the SSE connection alive; the next tick can retry.
+        } finally {
+          pushInFlight = false;
+        }
       }
       await push();
       timer = setInterval(() => void push(), 3_000);
